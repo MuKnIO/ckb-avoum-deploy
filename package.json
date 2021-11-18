@@ -1,0 +1,28 @@
+{
+	"name": "avoum-deployment",
+	"version": "1.0.0",
+	"description": "",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"@ckb-lumos/base": "^0.18.0-rc1",
+		"@ckb-lumos/common-scripts": "^0.18.0-rc1",
+		"@ckb-lumos/config-manager": "^0.18.0-rc1",
+		"@ckb-lumos/helpers": "^0.18.0-rc1",
+		"@ckb-lumos/indexer": "^0.18.0-rc1",
+		"@ckb-lumos/transaction-manager": "^0.18.0-rc1",
+		"@nervosnetwork/ckb-sdk-rpc": "^0.101.0",
+		"@nervosnetwork/ckb-sdk-utils": "^0.101.0",
+		"blake2b": "^2.1.3",
+		"bufferutility": "^2.2.1",
+		"ckb-js-toolkit": "^0.10.2",
+		"int64-buffer": "^1.0.1",
+		"lodash": "^4.17.21",
+		"secp256k1": "^4.0.2",
+		"secp256r1": "0.0.3"
+	}
+}
