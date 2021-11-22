@@ -9,9 +9,9 @@ const {secp256k1Blake160} = require("@ckb-lumos/common-scripts");
 const {sealTransaction} = require("@ckb-lumos/helpers");
 const {addDefaultCellDeps, addDefaultWitnessPlaceholders, collectCapacity,
        describeTransaction: libDescribeTransaction, getLiveCell, indexerReady,
-       initializeLumosIndexer,
-       readFileToHexString, sendTransaction, signMessage, signTransaction,
-       syncIndexer,
+       initializeLumosIndexer, readFileToHexString, sendTransaction,
+       signMessage, signTransaction, syncIndexer,
+       waitForTransactionConfirmation,
        waitForConfirmation, DEFAULT_LOCK_HASH} = require("./lib/index.js");
 const {ckbytesToShannons, hexToInt, intToHex, intToU128LeHexBytes,
        hexToArrayBuffer, u128LeHexBytesToInt, sleep} = require("./lib/util.js");
@@ -79,72 +79,54 @@ async function main()
     console.log("Script Metadata:")
     console.debug(JSON.stringify(scriptMetaTable, null, 2))
 
-    // console.debug("==== Deploying asset cells")
-    // let assetOutpoint = createAssetCell(indexer, outpoints)
-    // outpoints['assets'] = assetOutpoint
-    // console.debug("==== Deployed asset cells")
+    console.debug("==== Deploying asset cells")
+    const { codehash: noopScriptHash
+          , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
+    const assetOutpoint = await createAssetCell(indexer, noopScriptHash, noopOutpoint)
+    console.debug("==== Deployed asset cells")
 
     // console.debug("==== Deploying initial contract state cells")
     // let {consensusOutpoint, assetsOutpoint} =
     //     createInitialContractStateCells(indexer, outpoints)
     // console.debug("==== Deployed initial contract state cells")
+
+    header_log("DONE")
 }
 
 
 // indexer: Use to find cells.
-// outpoints: Input live cell outpoints
-// async function createAssetCells(indexer, input_outpoints) {
-//     	// Create a transaction skeleton.
-// 	let transaction = TransactionSkeleton({cellProvider: indexer});
+// TODO: Replace noop lockscript with actual lockscript
+// noopScriptHash: Hash of noop script code
+// noopOutpoint: Outpoint of noop lockscript, for use after code cell deployed.
+async function createAssetCell(indexer, noopScriptHash, noopOutpoint) {
+    	// Create a transaction skeleton.
+	let transaction = TransactionSkeleton({cellProvider: indexer});
 
-// 	// Add the cell deps (noop script, )
-// 	transaction = addDefaultCellDeps(transaction);
-// 	const cellDep = {dep_type: "code", out_point: scriptCodeOutPoint};
-// 	transaction = transaction.update("cellDeps", (cellDeps)=>cellDeps.push(cellDep));
+	// Add the cell deps for noop lock script
+	transaction = addDefaultCellDeps(transaction);
+    transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
 
-// 	// Create asset cell
-// 	const outputCapacity1 = ckbytesToShannons(1000n);
-// 	const lockScript1 = { args: "0x0", code_hash: "" }
-// 	const data1 = intToU128LeHexBytes(100n); // TODO: maybe use a proper asset?
-// 	const output1 = {cell_output: {capacity: intToHex(outputCapacity1), lock: lockScript1, type: null}, data: data1};
-// 	transaction = transaction.update("outputs", (i)=>i.push(output1));
+	// Create asset cell
+	const outputCapacity = ckbytesToShannons(1000n);
+	const lockScript = { args: "0x00", code_hash: noopScriptHash , hash_type: "data"}
+	const data = intToU128LeHexBytes(100n); // TODO: maybe use a proper asset?
+	const output =
+    { cell_output:
+      { capacity: intToHex(outputCapacity)
+      , lock: lockScript, type: null // TODO: Add auction type script.
+      }
+    , data: data
+    };
+	transaction = transaction.update("outputs", (i)=>i.push(output));
 
-// 	// Determine the capacity from all output Cells.
-// 	const outputCapacity = transaction.outputs.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n);
+    transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction)
 
-// 	// Add input capacity cells.
-// 	const capacityRequired = outputCapacity + ckbytesToShannons(61n) + DEFAULT_TX_FEE;
-// 	const collectedCells = await collectCapacity(indexer, addressToScript(ALICE_ADDRESS), capacityRequired);
-// 	transaction = transaction.update("inputs", (i)=>i.concat(collectedCells.inputCells));
+	// Add in the witness placeholders.
+	transaction = addDefaultWitnessPlaceholders(transaction);
 
-// 	// Determine the capacity of all input cells.
-// 	const inputCapacity = transaction.inputs.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n);
-
-// 	// Create a change Cell for the remaining CKBytes.
-// 	const changeCapacity = intToHex(inputCapacity - outputCapacity - DEFAULT_TX_FEE);
-// 	let change = {cell_output: {capacity: changeCapacity, lock: addressToScript(ALICE_ADDRESS), type: null}, data: "0x"};
-// 	transaction = transaction.update("outputs", (i)=>i.push(change));
-
-// 	// Add in the witness placeholders.
-// 	transaction = addDefaultWitnessPlaceholders(transaction);
-
-// 	// Print the details of the transaction to the console.
-// 	describeTransaction(transaction.toJS());
-
-// 	// Validate the transaction against the lab requirements.
-// 	await validateLab(transaction, "create");
-
-// 	// Sign the transaction.
-// 	const signedTx = signTransaction(transaction, ALICE_PRIVATE_KEY);
-
-// 	// Send the transaction to the RPC node.
-// 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx);
-// 	console.log(`Transaction Sent: ${txid}\n`);
-
-// 	// Wait for the transaction to confirm.
-// 	await waitForTransactionConfirmation(DEFAULT_NODE_URL, txid);
-// 	console.log("\n");
-// }
+    const outpoint = await fulfillTransaction(transaction);
+    return outpoint
+}
 
 // async function createInitialContractStateCells(indexer, outpoints) {
 
@@ -250,17 +232,7 @@ const createCodeCell = async (indexer, path) => {
 	const output1 = {cell_output: {capacity: intToHex(outputCapacity1), lock: addressToScript(ALICE_ADDRESS), type: null}, data: hexString1};
 	transaction = transaction.update("outputs", (i)=>i.push(output1));
 
-	// Add input cells.
-	const collectedCells = await collectCapacity(indexer, addressToScript(GENESIS_ADDRESS), outputCapacity1 + ckbytesToShannons(61n) + DEFAULT_TX_FEE);
-	transaction = transaction.update("inputs", (i)=>i.concat(collectedCells.inputCells));
-
-    const inputCapacity = getCapacity(transaction.inputs)
-    const outputCapacity = getCapacity(transaction.outputs)
-
-	// Add output change Cell for the remaining CKBytes.
-	const changeCapacity = intToHex(inputCapacity - outputCapacity - DEFAULT_TX_FEE);
-	let change = {cell_output: {capacity: changeCapacity, lock: addressToScript(GENESIS_ADDRESS), type: null}, data: "0x"};
-	transaction = transaction.update("outputs", (i)=>i.push(change));
+    transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction)
 
 	// Add in the witness placeholders.
 	transaction = addDefaultWitnessPlaceholders(transaction);
@@ -268,20 +240,32 @@ const createCodeCell = async (indexer, path) => {
 	// Print the details of the transaction to the console.
 	// describeTransaction(transaction.toJS());
 
+    const outpoint = await fulfillTransaction(transaction)
+
+	return { outpoint, "codehash": scriptBinaryHash };
+}
+
+// ----------- Library functions
+
+const addCellDeps = (transaction, cellDep) =>
+      transaction.update("cellDeps", (cellDeps)=>cellDeps.push(cellDep))
+
+// Signs, sends and waits for transaction confirmation
+const fulfillTransaction = async (transaction) => {
 	// Sign the transaction.
 	const signedTx = signTransaction(transaction, GENESIS_PRIVATE_KEY);
 
-    console.log("Create code cells: Transaction signed")
+    console.log("\nTransaction signed:")
+	// Print the details of the transaction to the console.
 	describeTransaction(transaction.toJS());
 
 	// Send the transaction to the RPC node.
-	// process.stdout.write("Setup Transaction Sent: ");
 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx);
-	console.log("\n Transaction id: ", txid);
+	console.log(`Transaction Sent: ${txid}\n`);
 
-    console.log("\nCreate code cells: Transaction sent")
-	await waitForConfirmation(DEFAULT_NODE_URL, txid, (_status)=>process.stdout.write("."), {recheckMs: 1_000});
-    console.log("\nCreate code cells: Transaction confirmed")
+	// Wait for the transaction to confirm.
+	await waitForTransactionConfirmation(DEFAULT_NODE_URL, txid);
+	console.log(`Transaction Confirmed: ${txid}\n`);
 
 	// Return the out point for the binary so it can be used in the next transaction.
 	const outpoint =
@@ -290,10 +274,8 @@ const createCodeCell = async (indexer, path) => {
 		index: "0x0" // The first cell in the output is our code cell.
 	};
 
-	return { outpoint, "codehash": scriptBinaryHash };
+    return outpoint
 }
-
-// ----------- Library functions
 
 const make_default_transaction = (indexer) => {
     	// Create a transaction skeleton.
@@ -306,6 +288,33 @@ const make_default_transaction = (indexer) => {
 
 // cells := transaction.inputs | transaction.outputs
 const getCapacity = (cells) => cells.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n)
+
+// input_cells_address : [Address] - Address from which we retrieve live inputs
+// indexer: [Indexer]
+// transaction: [Transaction] - Partially fulfilled transaction, only with outputs.
+// Balances the transaction by computing required input capacity,
+// indexing and retrieving the necessary amount of
+// input cells from `input_cells_address`,
+// producing output cells with necessary amount of change,
+// and updating the transaction with these cells.
+const balanceCapacity = async (input_cells_address, indexer, transaction) => {
+	// Determine the capacity from all output Cells.
+	const outputCapacity = getCapacity(transaction.outputs)
+
+	// Add input capacity cells.
+	const capacityRequired = outputCapacity + ckbytesToShannons(61n) + DEFAULT_TX_FEE;
+	const collectedCells = await collectCapacity(indexer, addressToScript(GENESIS_ADDRESS), capacityRequired);
+	transaction = transaction.update("inputs", (i)=>i.concat(collectedCells.inputCells));
+
+	// Determine the capacity of all input cells.
+	const inputCapacity = getCapacity(transaction.inputs)
+
+	// Create a change Cell for the remaining CKBytes.
+	const changeCapacity = intToHex(inputCapacity - outputCapacity - DEFAULT_TX_FEE);
+	let change = {cell_output: {capacity: changeCapacity, lock: addressToScript(GENESIS_ADDRESS), type: null}, data: "0x"};
+	transaction = transaction.update("outputs", (i)=>i.push(change));
+    return transaction
+}
 
 // ----------- Utilities
 
