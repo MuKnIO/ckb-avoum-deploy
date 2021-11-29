@@ -5,6 +5,7 @@ const {initializeConfig} = require("@ckb-lumos/config-manager");
 const {addressToScript} = require("@ckb-lumos/helpers");
 const {TransactionSkeleton} = require("@ckb-lumos/helpers");
 const {CellCollector} = require("@ckb-lumos/indexer");
+const {RPC} = require("ckb-js-toolkit");
 const {secp256k1Blake160} = require("@ckb-lumos/common-scripts");
 const {sealTransaction} = require("@ckb-lumos/helpers");
 const {addDefaultCellDeps, addDefaultWitnessPlaceholders, collectCapacity,
@@ -84,12 +85,12 @@ async function main()
 
     // Initial auction bid
     const auctionTx1 =
-          await placeBid(indexer, 10, auctionTx0)
+          await placeBid(indexer, 10, auctionTx0, noopOutpoint, noopCodeHash)
 
     // Failed bid
     // NOTE: With rebase script it should pass through.
     const auctionTx3 =
-          await placeBid(indexer, 100, auctionTx0)
+          await placeBid(indexer, 100, auctionTx0, noopOutpoint, noopCodeHash)
 
     // Collate and describe auction end state
     // TODO: Change these to reference outpoint2 namespace.
@@ -179,13 +180,88 @@ function makeBasicCell(amount, scriptHash) {
 // TODO: We have elided the keypair argument you see in the test-suite for place_bid.
 // This is needed in the real auction, in order to construct bid and refund lock scripts.
 // Since we noop everything for contention PoC, this isn't an issue here.
-async function placeBid(indexer, amount, auctionTxHash) {
+async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHash) {
     headerLog("Placing bid")
     await syncIndexer(indexer)
-    const consensusOutpoint = null
-    const escrowOutpoint = null
+    // Extract input cells:
+    // 1. Extract cell original consensus cell
+    // 2. Extract the original assets
+    // 3. Extract old bids.
+    let transaction = make_default_transaction(indexer);
+    transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
+
+    const consensusCellInput = await makeInputCell(auctionTxHash, 0)
+    const assetsCellInput = await makeInputCell(auctionTxHash, 1)
+
+    // const consensusLiveCellOutput = old_tx.outputs[0]
+    // const consensusLiveCell = { cell_output:  }
+    // console.log(consensusLiveCell)
+    // const assetsLiveCell = old_tx.outputs[1]
+    // console.log(assetsLiveCell)
+
+    const consensusOutpoint = { "tx_hash": auctionTxHash, "index": "0x0" }
+    transaction = transaction
+        .update("inputs", (i)=>i.push(consensusCellInput))
+    transaction = transaction
+        .update("inputs", (i)=>i.push(assetsCellInput))
+    // If this doesn't work maybe we need to update the LiveCells we use to have OutPoints as well.
+    //
+	// transaction = transaction
+    //     .update("inputs", (i)=>i
+    //             .push({ "previous_output": consensusOutpoint, "since": "0x0" }));
+    // const assetsOutpoint = { "tx_hash": auctionTxHash, "index": "0x1" }
+	// transaction = transaction
+    //     .update("inputs", (i)=>i
+    //             .push({ "previous_output": assetsOutpoint, "since": "0x1"}));
+    // FIXME: Check if there's old bids
+    // const oldBidsOutpoint = { "tx_hash": auctionTxHash, "index": "0x02" }
+	// transaction = transaction.update("inputs", (i)=>i.push(oldBidsOutpoint));
+
+    // Create output cells with:
+    // 1. Cell with New auction consensus, with new state of auction.
+    const newConsensusOutpoint = makeBasicCell(amount, noopCodeHash)
+	transaction = transaction.update("outputs", (i)=>i.push(newConsensusOutpoint));
+    // 2. Cell with new assets, with a lock script allowing access only by the auction.
+    const newAssetsOutpoint = makeBasicCell(amount, noopCodeHash)
+	transaction = transaction.update("outputs", (i)=>i.push(newAssetsOutpoint));
+    // 3. Cell with new bid, locked for use by auction
+    const newBidOutpoint = makeBasicCell(amount, noopCodeHash)
+	transaction = transaction.update("outputs", (i)=>i.push(newBidOutpoint));
+    // 4. Cell owned by previous bidder... why do we need this?
+    const oldBidOutpoint = makeBasicCell(amount, noopCodeHash)
+	transaction = transaction.update("outputs", (i)=>i.push(oldBidOutpoint));
+
+    transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction);
+
+    transaction = addDefaultWitnessPlaceholders(transaction)
+	// transaction = transaction.update("witnesses", w => w.push("0x01")) // indicate this is a new bid
+	// transaction = transaction.update("witnesses", w => w.push("0x00"))
+	// transaction = transaction.update("witnesses", w => w.push("0x00"))
+
+    const { tx_hash } = await fulfillTransaction(transaction);
+    //    Because of capacity?
+    // TODO Ask why we need this.
+    // For now it's good enough to dump 1-3.
     headerLog("Placed bid")
     return "0x1234"
+}
+
+async function makeInputCell(transactionHash, index) {
+    console.debug("Making input cell from previous Tx: ", transactionHash)
+    const out_point = { tx_hash: transactionHash, index: intToHex(index) }
+    let rpc = new RPC(DEFAULT_NODE_URL);
+    let { transaction: old_tx } = await rpc.get_transaction(transactionHash);
+    const prev_cell_output = old_tx.outputs[index];
+    const prev_cell_data = old_tx.outputs_data[index];
+    const input_cell = {
+        cell_output: prev_cell_output,
+        data: prev_cell_data,
+        out_point
+        // TODO: block_hash, block_number do we need these??
+    }
+    console.debug("Constructed input cell:")
+    console.debug(input_cell)
+    return input_cell
 }
 
 // indexer: Use to find cells.
@@ -276,6 +352,14 @@ const addCellDeps = (transaction, cellDep) =>
       transaction.update("cellDeps", (cellDeps)=>cellDeps.push(cellDep))
 
 // Signs, sends and waits for transaction confirmation
+// NOTE:
+// The argument `transaction` is not in the proper form yet.
+// This calls `signTransaction` -> `sealTransaction` -> `createTransactionFromSkeleton`,
+// which takes the transaction object,
+// and transforms it into the JSON transaction object
+// which the rpc expects.
+// You can see the definition of `createTransaction` to see the rough structure,
+// and conversion of the skeleton object to the rpc object.
 const fulfillTransaction = async (transaction) => {
 	// Sign the transaction.
 	const signedTx = signTransaction(transaction, GENESIS_PRIVATE_KEY);
@@ -303,7 +387,7 @@ const fulfillTransaction = async (transaction) => {
 }
 
 const make_default_transaction = (indexer) => {
-    	// Create a transaction skeleton.
+    // Create a transaction skeleton.
 	let transaction = TransactionSkeleton({cellProvider: indexer});
 
 	// Add the cell dep for the lock script.
@@ -312,7 +396,10 @@ const make_default_transaction = (indexer) => {
 }
 
 // cells := transaction.inputs | transaction.outputs
-const getCapacity = (cells) => cells.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n)
+const getCapacity = (cells) => {
+    console.debug(cells.toArray())
+    return cells.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n)
+}
 
 // input_cells_address : [Address] - Address from which we retrieve live inputs
 // indexer: [Indexer]
@@ -325,14 +412,18 @@ const getCapacity = (cells) => cells.toArray().reduce((a, c)=>a+hexToInt(c.cell_
 const balanceCapacity = async (input_cells_address, indexer, transaction) => {
 	// Determine the capacity from all output Cells.
 	const outputCapacity = getCapacity(transaction.outputs)
+    console.debug('balanced outputs')
+    // Inputs do not have same format as outputs.
+	// const currentInputCapacity = getCapacity(transaction.inputs)
 
 	// Add input capacity cells.
-	const capacityRequired = outputCapacity + ckbytesToShannons(61n) + DEFAULT_TX_FEE;
+	const capacityRequired = outputCapacity + ckbytesToShannons(61n) + DEFAULT_TX_FEE; // - currentInputCapacity;
 	const collectedCells = await collectCapacity(indexer, addressToScript(GENESIS_ADDRESS), capacityRequired);
 	transaction = transaction.update("inputs", (i)=>i.concat(collectedCells.inputCells));
 
 	// Determine the capacity of all input cells.
 	const inputCapacity = getCapacity(transaction.inputs)
+    console.debug('balanced inputs')
 
 	// Create a change Cell for the remaining CKBytes.
 	const changeCapacity = intToHex(inputCapacity - outputCapacity - DEFAULT_TX_FEE);
