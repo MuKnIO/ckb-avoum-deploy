@@ -238,7 +238,7 @@ async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHa
 	// transaction = transaction.update("witnesses", w => w.push("0x00"))
 	// transaction = transaction.update("witnesses", w => w.push("0x00"))
 
-    const { tx_hash } = await fulfillTransaction(transaction);
+    const { tx_hash } = await fulfillMalleableTransaction(transaction);
     //    Because of capacity?
     // TODO Ask why we need this.
     // For now it's good enough to dump 1-3.
@@ -260,7 +260,7 @@ async function makeInputCell(transactionHash, index) {
         // TODO: block_hash, block_number do we need these??
     }
     console.debug("Constructed input cell:")
-    console.debug(input_cell)
+    // console.debug(input_cell)
     return input_cell
 }
 
@@ -385,6 +385,35 @@ const fulfillTransaction = async (transaction) => {
 
     return outpoint
 }
+
+const fulfillMalleableTransaction = async (transaction) => {
+	// Sign the transaction.
+	const signedTx = signTransaction(transaction, GENESIS_PRIVATE_KEY);
+
+    console.log("\nTransaction signed:")
+	// Print the details of the transaction to the console.
+	describeTransaction(transaction.toJS());
+
+	// Send the transaction to the RPC node.
+    const script = "" // TODO: Replace these
+    const indices = "" // with the actual values
+	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx, script, indices);
+	console.log(`Transaction Sent: ${txid}\n`);
+
+	// Wait for the transaction to confirm.
+	await waitForTransactionConfirmation(DEFAULT_NODE_URL, txid);
+	console.log(`Transaction Confirmed: ${txid}\n`);
+
+	// Return the out point for the binary so it can be used in the next transaction.
+	const outpoint =
+	{
+		tx_hash: txid,
+		index: "0x0" // The first cell in the output is our code cell.
+	};
+
+    return outpoint
+}
+
 
 const make_default_transaction = (indexer) => {
     // Create a transaction skeleton.
