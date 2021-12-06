@@ -395,8 +395,8 @@ const fulfillMalleableTransaction = async (transaction) => {
 	describeTransaction(transaction.toJS());
 
 	// Send the transaction to the RPC node.
-    const script = "" // TODO: Replace these
-    const indices = "" // with the actual values
+    const script = 1 // TODO: Replace these
+    const indices = 1 // with the actual values
 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx, script, indices);
 	console.log(`Transaction Sent: ${txid}\n`);
 
@@ -426,7 +426,7 @@ const make_default_transaction = (indexer) => {
 
 // cells := transaction.inputs | transaction.outputs
 const getCapacity = (cells) => {
-    console.debug(cells.toArray())
+    // console.debug(cells.toArray())
     return cells.toArray().reduce((a, c)=>a+hexToInt(c.cell_output.capacity), 0n)
 }
 
