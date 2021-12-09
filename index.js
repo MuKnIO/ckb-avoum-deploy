@@ -330,7 +330,7 @@ const createCodeCell = async (indexer, path) => {
 	const {hexString: hexString1, dataSize: dataSize1} = await readFileToHexString(path);
     const scriptBinaryHash = ckbHash(hexToArrayBuffer(hexString1)).serializeJson()
 	const outputCapacity1 = ckbytesToShannons(61n) + ckbytesToShannons(dataSize1);
-	const output1 = {cell_output: {capacity: intToHex(outputCapacity1), lock: addressToScript(ALICE_ADDRESS), type: null}, data: hexString1};
+	const output1 = {cell_output: {capacity: intToHex(outputCapacity1), lock: addressToScript(GENESIS_ADDRESS), type: null}, data: hexString1};
 	transaction = transaction.update("outputs", (i)=>i.push(output1));
 
     transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction)
@@ -396,7 +396,7 @@ const fulfillMalleableTransaction = async (transaction) => {
 
 	// Send the transaction to the RPC node.
     const script = 1 // TODO: Replace these
-    const indices = 1 // with the actual values
+    const indices = [1] // with the actual values
 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx, script, indices);
 	console.log(`Transaction Sent: ${txid}\n`);
 
