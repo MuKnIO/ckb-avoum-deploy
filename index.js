@@ -179,7 +179,8 @@ function makeBasicCell(amount, scriptHash) {
 function makeConsensusCell(amount, scriptHash) {
     const outputCapacity = ckbytesToShannons(1000n);
 	const lockScript = { args: "0x00", code_hash: scriptHash , hash_type: "data"}
-	const data = intToU128LeHexBytes(100n); // TODO: Construct the entire JSON of the consensus cell.
+    // Construct the account id, the first 32bytes of data.
+	const data = "0x01020304050607080910" + "11121314151617181920" + "21222324252627282930" + "3132"
 	const output =
     { cell_output:
       { capacity: intToHex(outputCapacity)
