@@ -78,8 +78,8 @@ async function main()
     const assetOutpoint = await createAssetCell(indexer, noopCodeHash, noopOutpoint)
 
     // Creates auction state cells:
-    // - Auction consensus: state of auction
-    // - Auction escrow: holds the assets.
+    // 0x0 Auction consensus: state of auction, inclusive of the account id.
+    // 0x1 Auction escrow: holds the assets.
     const auctionTx0 =
           await createAuctionCells(indexer, assetOutpoint, noopOutpoint, noopCodeHash)
 
@@ -138,7 +138,7 @@ async function createAuctionCells(indexer, assetOutpoint, noopOutpoint, noopCode
 
     // Create consensus cell
     // TODO: This needs auction type script.
-    let consensusOutput = makeBasicCell(1000n, noopCodeHash)
+    let consensusOutput = makeConsensusCell(1000n, noopCodeHash)
 	transaction = transaction.update("outputs", (i)=>i.push(consensusOutput));
 
     let escrowOutput = makeBasicCell(1000n, noopCodeHash)
@@ -175,6 +175,23 @@ function makeBasicCell(amount, scriptHash) {
     };
     return output
 }
+
+function makeConsensusCell(amount, scriptHash) {
+    const outputCapacity = ckbytesToShannons(1000n);
+	const lockScript = { args: "0x00", code_hash: scriptHash , hash_type: "data"}
+	const data = intToU128LeHexBytes(100n); // TODO: Construct the entire JSON of the consensus cell.
+	const output =
+    { cell_output:
+      { capacity: intToHex(outputCapacity)
+      , lock: lockScript
+      , type: lockScript
+      }
+    , data: data
+    };
+    return output
+}
+
+
 // TODO: Once rebase script is in, this should call `send_transaction`,
 // with the rebase_script and cell indices parameters.
 // TODO: We have elided the keypair argument you see in the test-suite for place_bid.
@@ -219,7 +236,7 @@ async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHa
 
     // Create output cells with:
     // 1. Cell with New auction consensus, with new state of auction.
-    const newConsensusOutpoint = makeBasicCell(amount, noopCodeHash)
+    const newConsensusOutpoint = makeConsensusCell(amount, noopCodeHash)
 	transaction = transaction.update("outputs", (i)=>i.push(newConsensusOutpoint));
     // 2. Cell with new assets, with a lock script allowing access only by the auction.
     const newAssetsOutpoint = makeBasicCell(amount, noopCodeHash)
@@ -396,7 +413,7 @@ const fulfillMalleableTransaction = async (transaction) => {
 
 	// Send the transaction to the RPC node.
     const script = 1 // TODO: Replace these
-    const indices = [1] // with the actual values
+    const indices = [0] // with the actual values
 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx, script, indices);
 	console.log(`Transaction Sent: ${txid}\n`);
 
