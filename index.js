@@ -176,11 +176,28 @@ function makeBasicCell(amount, scriptHash) {
     return output
 }
 
+var avoumId = 0
+
+function makeConsensusData(new_bid, script) {
+    avoumId += 1
+    let data = {
+        avoum_id: { hash : avoumId },
+        current_bid: new_bid,
+        deadline_block: 0,
+        seller_lock_script: script,
+        escrow_lock_script: script,
+        refund_lock_script: script
+    }
+    data = JSON.stringify(data)
+    return stringToHex(data)
+}
+
 function makeConsensusCell(amount, scriptHash) {
     const outputCapacity = ckbytesToShannons(1000n);
 	const lockScript = { args: "0x00", code_hash: scriptHash , hash_type: "data"}
     // Construct the account id, the first 32bytes of data.
-	const data = "0x01020304050607080910" + "11121314151617181920" + "21222324252627282930" + "3132"
+	// const data = "0x01020304050607080910" + "11121314151617181920" + "21222324252627282930" + "3132"
+    const data = makeConsensusData(amount, lockScript)
 	const output =
     { cell_output:
       { capacity: intToHex(outputCapacity)
