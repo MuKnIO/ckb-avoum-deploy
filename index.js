@@ -15,7 +15,7 @@ const {addDefaultCellDeps, addDefaultWitnessPlaceholders, collectCapacity,
        waitForTransactionConfirmation,
        waitForConfirmation, DEFAULT_LOCK_HASH} = require("./lib/index.js");
 const {ckbytesToShannons, hexToInt, intToHex, intToU128LeHexBytes,
-       hexToArrayBuffer, u128LeHexBytesToInt, sleep} = require("./lib/util.js");
+       stringToHex, hexToArrayBuffer, u128LeHexBytesToInt, sleep} = require("./lib/util.js");
 
 // ----------- Deploying and Running the auction interaction under high-contention
 //
@@ -138,7 +138,7 @@ async function createAuctionCells(indexer, assetOutpoint, noopOutpoint, noopCode
 
     // Create consensus cell
     // TODO: This needs auction type script.
-    let consensusOutput = makeConsensusCell(1000n, noopCodeHash)
+    let consensusOutput = makeConsensusCell(1, noopCodeHash)
 	transaction = transaction.update("outputs", (i)=>i.push(consensusOutput));
 
     let escrowOutput = makeBasicCell(1000n, noopCodeHash)
@@ -176,12 +176,21 @@ function makeBasicCell(amount, scriptHash) {
     return output
 }
 
-var avoumId = 0
+function scriptAsJson(script) {
+    let code_hash_ser = new Uint8Array(hexToArrayBuffer(script.code_hash))
+    code_hash_ser = [...code_hash_ser]
+    console.log(code_hash_ser)
+    return {
+        "args": [0],
+        "code_hash": { digest: code_hash_ser },
+        "hash_type": 0
+    }
+}
 
 function makeConsensusData(new_bid, script) {
-    avoumId += 1
+    script = scriptAsJson(script)
     let data = {
-        avoum_id: { hash : avoumId },
+        avoum_id: { unique_hash : {digest: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } },
         current_bid: new_bid,
         deadline_block: 0,
         seller_lock_script: script,
