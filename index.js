@@ -218,6 +218,20 @@ function makeConsensusCell(amount, scriptHash) {
     return output
 }
 
+async function createNoopCellInput(amount, indexer, noopOutpoint, noopCodeHash) {
+    headerLog("Creating noop cell")
+    let transaction = make_default_transaction(indexer);
+    transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
+    const noopCell = makeBasicCell(amount, noopCodeHash)
+	transaction = transaction.update("outputs", (i)=>i.push(noopCell));
+    transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction);
+    transaction = addDefaultWitnessPlaceholders(transaction)
+    const { tx_hash } = await fulfillTransaction(transaction);
+    const noopCellInput = makeInputCell(tx_hash, 0);
+    headerLog("Created noop cell")
+    return noopCellInput
+}
+
 
 // TODO: Once rebase script is in, this should call `send_transaction`,
 // with the rebase_script and cell indices parameters.
@@ -227,6 +241,7 @@ function makeConsensusCell(amount, scriptHash) {
 async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHash) {
     headerLog("Placing bid")
     await syncIndexer(indexer)
+
     // Extract input cells:
     // 1. Extract cell original consensus cell
     // 2. Extract the original assets
@@ -248,6 +263,12 @@ async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHa
         .update("inputs", (i)=>i.push(consensusCellInput))
     transaction = transaction
         .update("inputs", (i)=>i.push(assetsCellInput))
+    const noopCellInput = await createNoopCellInput(10, indexer, noopOutpoint, noopCodeHash)
+    transaction = transaction
+        .update("inputs", (i)=>i.push(noopCellInput))
+    const noopCellInput2 = await createNoopCellInput(2000, indexer, noopOutpoint, noopCodeHash)
+    transaction = transaction
+        .update("inputs", (i)=>i.push(noopCellInput2))
     // If this doesn't work maybe we need to update the LiveCells we use to have OutPoints as well.
     //
 	// transaction = transaction
@@ -282,7 +303,8 @@ async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHa
     let bidWitness = { "Bid": { "refund_lock_script": scriptAsJson(refund_script), "retract_key": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } }
     bidWitness = JSON.stringify(bidWitness)
     bidWitness = stringToHex(bidWitness)
-	transaction = transaction.update("witnesses", w => w.unshift(bidWitness)) // indicate this is a new bid
+	transaction = transaction.update("witnesses", w => w.push(bidWitness)) // indicate this is a new bid
+    console.log("number of witnesses: ", transaction.get("witnesses").toArray().length)
 	// transaction = transaction.update("witnesses", w => w.push("0x01")) // indicate this is a new bid
 	// transaction = transaction.update("witnesses", w => w.push("0x00"))
 
@@ -486,6 +508,7 @@ const getCapacity = (cells) => {
 // input cells from `input_cells_address`,
 // producing output cells with necessary amount of change,
 // and updating the transaction with these cells.
+// FIXME: We should have a counterpart which balances with unlocked cells for fast prototyping.
 const balanceCapacity = async (input_cells_address, indexer, transaction) => {
 	// Determine the capacity from all output Cells.
 	const outputCapacity = getCapacity(transaction.outputs)
