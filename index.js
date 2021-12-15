@@ -74,7 +74,7 @@ async function main()
     const { codehash: noopCodeHash
           , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
 
-    // Creates the initial asset cell, owned by the seller.
+    // Create the initial asset cell, owned by the seller.
     const assetOutpoint = await createAssetCell(indexer, noopCodeHash, noopOutpoint)
 
     // Creates auction state cells:
@@ -278,8 +278,12 @@ async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHa
     transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction);
 
     transaction = addDefaultWitnessPlaceholders(transaction)
+    const refund_script = { args: "0x00", code_hash: noopCodeHash , hash_type: "data"}
+    let bidWitness = { "Bid": { "refund_lock_script": scriptAsJson(refund_script), "retract_key": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } }
+    bidWitness = JSON.stringify(bidWitness)
+    bidWitness = stringToHex(bidWitness)
+	transaction = transaction.update("witnesses", w => w.unshift(bidWitness)) // indicate this is a new bid
 	// transaction = transaction.update("witnesses", w => w.push("0x01")) // indicate this is a new bid
-	// transaction = transaction.update("witnesses", w => w.push("0x00"))
 	// transaction = transaction.update("witnesses", w => w.push("0x00"))
 
     const { tx_hash } = await fulfillMalleableTransaction(transaction);
