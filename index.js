@@ -3,7 +3,7 @@ const {ckbHash, computeScriptHash} = utils;
 const {ScriptValue} = values;
 const {initializeConfig} = require("@ckb-lumos/config-manager");
 const {addressToScript} = require("@ckb-lumos/helpers");
-const {TransactionSkeleton} = require("@ckb-lumos/helpers");
+const {TransactionSkeleton, createTransactionFromSkeleton} = require("@ckb-lumos/helpers");
 const {CellCollector} = require("@ckb-lumos/indexer");
 const {RPC} = require("ckb-js-toolkit");
 const {secp256k1Blake160} = require("@ckb-lumos/common-scripts");
@@ -15,6 +15,7 @@ const {addDefaultCellDeps, addDefaultWitnessPlaceholders, collectCapacity,
        waitForTransactionConfirmation,
        waitForConfirmation, DEFAULT_LOCK_HASH} = require("./lib/index.js");
 const {ckbytesToShannons, hexToInt, intToHex, intToU128LeHexBytes,
+       hexToUint8Array,
        stringToHex, hexToArrayBuffer, u128LeHexBytesToInt, sleep} = require("./lib/util.js");
 const sha256 = require('js-sha256');
 
@@ -80,17 +81,17 @@ async function main()
     const auctionTx0 =
           await openAuction(indexer, scriptMetaTable)
 
-    const { codehash: noopCodeHash
-          , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
+    // const { codehash: noopCodeHash
+    //       , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
 
     // Initial auction bid
-    const auctionTx1 =
-          await placeBid(indexer, 10, auctionTx0, noopOutpoint, noopCodeHash)
+    // const auctionTx1 =
+    //       await placeBid(indexer, 10, auctionTx0, noopOutpoint, noopCodeHash)
 
     // Failed bid
     // NOTE: With rebase script it should pass through.
-    const auctionTx3 =
-          await placeBid(indexer, 100, auctionTx0, noopOutpoint, noopCodeHash)
+    // const auctionTx3 =
+    //       await placeBid(indexer, 100, auctionTx0, noopOutpoint, noopCodeHash)
 
     // Collate and describe auction end state
     // TODO: Change these to reference outpoint2 namespace.
@@ -130,11 +131,14 @@ async function fetchCurrentBidOutpoint(indexer, consensusOutpoint, escrowOutpoin
 
 // invoked with index := 0
 function new_avoum_id(outpoint, index) {
+    console.log(outpoint, index)
     const tx_hash_hexstring = outpoint.tx_hash
     const tx_hash = hexToArrayBuffer(tx_hash_hexstring)
-    const outpoint_index_hexstring = outpoint.index
+    // const outpoint_index_hexstring = outpoint.index
+    const outpoint_index_hexstring = "0x00"
     const outpoint_index = hexToArrayBuffer(outpoint_index_hexstring)
-    let index = hexToUint8Array(intToHex(index))
+    // index = hexToUint8Array(intToHex(index))
+    index = hexToUint8Array("0x00")
     let id_u8_array = new_avoum_id_inner(tx_hash, outpoint_index, index)
     // return { unique_hash : {digest: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } }
     return { unique_hash: {digest: id_u8_array} }
@@ -156,15 +160,22 @@ function new_avoum_id_inner(tx_hash, outpoint_index, index) {
 async function openAuction(indexer, scriptMetaTable) {
     headerLog("Creating Auction Cells")
     await syncIndexer(indexer)
+    // Setup cell deps
+    let transaction = make_default_transaction(indexer);
+    for (const [_k, {outpoint}] of Object.entries(scriptMetaTable)) {
+        transaction = addCellDeps(transaction, {dep_type: "code", out_point: outpoint})
+    }
 
     // Create the initial asset cell, owned by the seller.
     const { codehash: noopCodeHash
           , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
     const assetOutpoint = await createAssetCell(indexer, noopCodeHash, noopOutpoint)
 
-    // Setup cell deps
-    let transaction = make_default_transaction(indexer);
-    transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
+    // Add the asset cell as input
+    const assetCellInput = await makeInputCell(assetOutpoint.tx_hash, 0)
+	transaction = transaction.update("inputs", (i)=>i.push(assetCellInput));
+
+    // transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
 
     // Create consensus cell
     // TODO: This needs auction type script.
@@ -173,17 +184,23 @@ async function openAuction(indexer, scriptMetaTable) {
     let consensusOutput = makeConsensusCell(initialBidAmount, avoumId, scriptMetaTable)
 	transaction = transaction.update("outputs", (i)=>i.push(consensusOutput));
 
-    let escrowOutput = makeEscrowCell(1000n, noopCodeHash)
+    let escrowOutput = makeEscrowCell(1000n, scriptMetaTable)
 	transaction = transaction.update("outputs", (i)=>i.push(escrowOutput));
 
-    let balanceInput = createNoopCellInput(1000, indexer, noopOutpoint, noopCodeHash)
+    let balanceInput = await createNoopCellInput(2000, indexer, noopOutpoint, noopCodeHash)
 	transaction = transaction.update("inputs", (i)=>i.push(balanceInput));
     // transaction = await balanceCapacity(GENESIS_ADDRESS, indexer, transaction)
 
 	// Add in the witness placeholders.
 	// transaction = addDefaultWitnessPlaceholders(transaction);
 
-    const { tx_hash } = await fulfillTransaction(transaction);
+    let bidWitness = "Open"
+    bidWitness = JSON.stringify(bidWitness)
+    bidWitness = stringToHex(bidWitness)
+	transaction = transaction.update("witnesses", w => w.push(bidWitness)) // indicate this is opening tx
+
+    headerLog("Constructed open auction cells")
+    const { tx_hash } = await fulfillTransactionNoSign(transaction);
 
     // NOTE: This is left out, because it is expected encoding,
     // the type script will perform a check to ensure the tx
@@ -197,7 +214,7 @@ async function openAuction(indexer, scriptMetaTable) {
 }
 
 function makeBasicCell(amount, scriptHash) {
-    const outputCapacity = ckbytesToShannons(1000n);
+    const outputCapacity = ckbytesToShannons(amount);
 	const lockScript = { args: "0x00", code_hash: scriptHash , hash_type: "data"}
 	const data = intToU128LeHexBytes(100n); // TODO: Construct the entire JSON of the consensus cell.
 	const output =
@@ -232,7 +249,7 @@ function makeConsensusData(bid_amount, avoumId, scriptMetaTable) {
     let data = {
         // avoum_id: { unique_hash : {digest: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } },
         avoum_id: avoumId,
-        current_bid: new_bid,
+        current_bid: bid_amount,
         deadline_block: 0,
         seller_lock_script,
         escrow_lock_script,
@@ -282,6 +299,7 @@ function makeEscrowCell(amount, scriptMetaTable) {
 
 async function createNoopCellInput(amount, indexer, noopOutpoint, noopCodeHash) {
     headerLog("Creating noop cell")
+    await syncIndexer(indexer)
     let transaction = make_default_transaction(indexer);
     transaction = addCellDeps(transaction, {dep_type: "code", out_point: noopOutpoint})
     const noopCell = makeBasicCell(amount, noopCodeHash)
@@ -392,7 +410,7 @@ async function makeInputCell(transactionHash, index) {
         // TODO: block_hash, block_number do we need these??
     }
     console.debug("Constructed input cell:")
-    // console.debug(input_cell)
+    console.debug(input_cell)
     return input_cell
 }
 
@@ -502,6 +520,29 @@ const fulfillTransaction = async (transaction) => {
 
 	// Send the transaction to the RPC node.
 	const txid = await sendTransaction(DEFAULT_NODE_URL, signedTx);
+	console.log(`Transaction Sent: ${txid}\n`);
+
+	// Wait for the transaction to confirm.
+	await waitForTransactionConfirmation(DEFAULT_NODE_URL, txid);
+	console.log(`Transaction Confirmed: ${txid}\n`);
+
+	// Return the out point for the binary so it can be used in the next transaction.
+	const outpoint =
+	{
+		tx_hash: txid,
+		index: "0x0" // The first cell in the output is our code cell.
+	};
+
+    return outpoint
+}
+
+const fulfillTransactionNoSign = async (transactionSkeleton) => {
+    const transaction = createTransactionFromSkeleton(transactionSkeleton)
+	// Print the details of the transaction to the console.
+	describeTransaction(transactionSkeleton.toJS());
+
+	// Send the transaction to the RPC node.
+	const txid = await sendTransaction(DEFAULT_NODE_URL, transaction);
 	console.log(`Transaction Sent: ${txid}\n`);
 
 	// Wait for the transaction to confirm.
