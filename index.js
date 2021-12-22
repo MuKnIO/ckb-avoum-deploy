@@ -224,7 +224,8 @@ async function openAuction(indexer, scriptMetaTable) {
 function makeBasicCell(amount, scriptHash) {
     const outputCapacity = ckbytesToShannons(amount);
 	const lockScript = { args: "0x00", code_hash: scriptHash , hash_type: "data"}
-	const data = intToU128LeHexBytes(100n); // TODO: Construct the entire JSON of the consensus cell.
+	// const data = intToU128LeHexBytes(100n); // TODO: Construct the entire JSON of the consensus cell.
+	const data = "0x00"
 	const output =
     { cell_output:
       { capacity: intToHex(outputCapacity)
