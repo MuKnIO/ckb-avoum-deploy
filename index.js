@@ -131,15 +131,23 @@ async function fetchCurrentBidOutpoint(indexer, consensusOutpoint, escrowOutpoin
 
 // invoked with index := 0
 function new_avoum_id(outpoint, index) {
-    console.log(outpoint, index)
+    console.log("avoum_id hex outpoint:", outpoint)
+    console.log("avoum_id hex index:", index)
     const tx_hash_hexstring = outpoint.tx_hash
-    const tx_hash = hexToArrayBuffer(tx_hash_hexstring)
+    let tx_hash = [...hexToUint8Array(tx_hash_hexstring)]
+    console.log("avoum_id tx_hash:", tx_hash)
     // const outpoint_index_hexstring = outpoint.index
     const outpoint_index_hexstring = "0x00"
-    const outpoint_index = hexToArrayBuffer(outpoint_index_hexstring)
+    // const outpoint_index = [...hexToUint8Array(outpoint_index_hexstring)]
+    const outpoint_index = new Array(4).fill(0)
+
+    console.log("avoum_id outpoint_index:", outpoint_index)
     // index = hexToUint8Array(intToHex(index))
-    index = hexToUint8Array("0x00")
+    // index = [...hexToUint8Array("0x00")]
+    index = new Array(4).fill(0)
+    console.log("avoum_id index:", index)
     let id_u8_array = new_avoum_id_inner(tx_hash, outpoint_index, index)
+    console.log("avoum_id id_u8_array:", id_u8_array)
     // return { unique_hash : {digest: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] } }
     return { unique_hash: {digest: id_u8_array} }
 }
@@ -479,6 +487,7 @@ const createCodeCell = async (indexer, path) => {
 	// Add output cell.
 	const {hexString: hexString1, dataSize: dataSize1} = await readFileToHexString(path);
     const scriptBinaryHash = ckbHash(hexToArrayBuffer(hexString1)).serializeJson()
+    console.log("Script (data) binary hash:", scriptBinaryHash)
 	const outputCapacity1 = ckbytesToShannons(61n) + ckbytesToShannons(dataSize1);
 	const output1 = {cell_output: {capacity: intToHex(outputCapacity1), lock: addressToScript(GENESIS_ADDRESS), type: null}, data: hexString1};
 	transaction = transaction.update("outputs", (i)=>i.push(output1));
