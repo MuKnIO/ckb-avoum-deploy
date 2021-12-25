@@ -170,7 +170,8 @@ function new_avoum_id_inner(tx_hash, outpoint_index, index) {
     return hash_array
 }
 
-// Open Auction Transaction format
+
+// ----------- Open Auction Transaction format
 // witness0: 0
 // input0: assets
 // input1..: balance capacity cells
@@ -337,9 +338,33 @@ async function createNoopCellInput(amount, indexer, noopOutpoint, noopCodeHash) 
 // TODO: We have elided the keypair argument you see in the test-suite for place_bid.
 // This is needed in the real auction, in order to construct bid and refund lock scripts.
 // Since we noop everything for contention PoC, this isn't an issue here.
+// ----------- Place Bid Transaction formats
+//
+// ----- Create Bid Cell Transaction
+// witness0: Signatures for balance / change cells.
+// inputs: Balance Cell(s).
+// output0: New Bid Cell, locked with Bid Lock Script
+//          N.B. This has to include enough CKB to balance Place Bid Transaction.
+//          The other cells in Place Bid Transaction are fixed capacity.
+// outputs: Change Cell(s)
+//
+// ----- Place Bid Transaction
+// witness0: Bid { ... } (For Proof of Concept)
+// input0: Auction Consensus Cell
+// input1: Auction Assets
+// input2: New Bid (From the above Create Bid Cell Transaction)
+// input3: Old Escrowed Bid
+// output0: input0 cell, modified with new bid
+// output1: input1 cell, no change.
+// output2: input2, lock script swapped to use auction's lock script
+// output3: input3 (Old Escrowed Bid), uses refund lock script from old bidder,
+//          allows them to retrieve their assets.
 async function placeBid(indexer, scriptMetaTable, amount, auctionTxHash) {
     headerLog("Placing bid")
     await syncIndexer(indexer)
+
+    // Create Bid Cell Transaction
+    createBidCell(indexer, scriptMetaTable, amount)
 
     // Extract input cells:
     // 1. Extract cell original consensus cell
