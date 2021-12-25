@@ -33,6 +33,12 @@ const sha256 = require('js-sha256');
 // https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0022-transaction-structure/0022-transaction-structure.md
 
 
+// ----------- Implementation Notes
+//
+// Balance CKB cells: Used in inputs provide extra capacity to ensure CKB of inputs >= outputs + tx fee.
+// Change CKB cells: Used in outputs to take back any remaining CKB in excess to original owner,
+//                   change (CKB) = inputs - (outputs + tx fee)
+
 // ----------- Config
 
 const DEFAULT_NODE_URL = "http://127.0.0.1:8114/";
@@ -78,15 +84,15 @@ async function main()
     // Creates auction state cells:
     // 0x0 Auction consensus: state of auction, inclusive of the account id.
     // 0x1 Auction escrow: holds the assets.
-    const auctionTx0 =
+    const auctionTx0Hash =
           await openAuction(indexer, scriptMetaTable)
 
     // const { codehash: noopCodeHash
     //       , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
 
     // Initial auction bid
-    // const auctionTx1 =
-    //       await placeBid(indexer, 10, auctionTx0, noopOutpoint, noopCodeHash)
+    const auctionTx1 =
+          await placeBid(indexer, scriptMetaTable, 10, auctionTx0Hash)
 
     // Failed bid
     // NOTE: With rebase script it should pass through.
@@ -164,7 +170,13 @@ function new_avoum_id_inner(tx_hash, outpoint_index, index) {
     return hash_array
 }
 
-
+// Open Auction Transaction format
+// witness0: 0
+// input0: assets
+// input1..: balance capacity cells
+// output0: auction consensus
+// output1: auction assets
+// output2..: change capacity cells
 async function openAuction(indexer, scriptMetaTable) {
     headerLog("Creating Auction Cells")
     await syncIndexer(indexer)
@@ -322,12 +334,10 @@ async function createNoopCellInput(amount, indexer, noopOutpoint, noopCodeHash) 
 }
 
 
-// TODO: Once rebase script is in, this should call `send_transaction`,
-// with the rebase_script and cell indices parameters.
 // TODO: We have elided the keypair argument you see in the test-suite for place_bid.
 // This is needed in the real auction, in order to construct bid and refund lock scripts.
 // Since we noop everything for contention PoC, this isn't an issue here.
-async function placeBid(indexer, amount, auctionTxHash, noopOutpoint, noopCodeHash) {
+async function placeBid(indexer, scriptMetaTable, amount, auctionTxHash) {
     headerLog("Placing bid")
     await syncIndexer(indexer)
 
