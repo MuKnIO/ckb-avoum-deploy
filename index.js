@@ -1,23 +1,6 @@
-const {utils, values} = require("@ckb-lumos/base");
-const {ckbHash, computeScriptHash} = utils;
-const {ScriptValue} = values;
-const {initializeConfig} = require("@ckb-lumos/config-manager");
-const {addressToScript} = require("@ckb-lumos/helpers");
-const {TransactionSkeleton, createTransactionFromSkeleton} = require("@ckb-lumos/helpers");
-const {CellCollector} = require("@ckb-lumos/indexer");
-const {RPC} = require("ckb-js-toolkit");
-const {secp256k1Blake160} = require("@ckb-lumos/common-scripts");
-const {sealTransaction} = require("@ckb-lumos/helpers");
-const {addDefaultCellDeps, addDefaultWitnessPlaceholders, collectCapacity,
-       describeTransactionCore, getLiveCell, indexerReady,
-       initializeLumos, initializeLumosIndexer, readFileToHexString, sendTransaction,
-       signMessage, signTransaction, syncIndexer,
-       waitForTransactionConfirmation,
-       waitForConfirmation, DEFAULT_LOCK_HASH} = require("./lib/index.js");
-const {ckbytesToShannons, hexToInt, intToHex, intToU128LeHexBytes,
-       hexToUint8Array,
-       stringToHex, hexToArrayBuffer, u128LeHexBytesToInt, sleep} = require("./lib/util.js");
-const sha256 = require('js-sha256');
+const { initializeLumos } = require('./lib/index')
+const auctionRequests = require('./lib/auction/requests')
+const auctionUtils = require('./lib/auction/util')
 
 // ----------- Deploying and Running the auction interaction under high-contention
 //
@@ -45,25 +28,17 @@ const sha256 = require('js-sha256');
 async function main()
 {
 	// Initialize the Lumos Indexer
-    const indexer = await initializeLumos();
-
-    // Deploy Code cells
-    // scriptMetaTable maps script names so their metadata (outpoint, codehash).
-    const scriptMetaTable = await createCodeCells(indexer)
-
+    const { indexer, scriptMetaTable } = await auctionUtils.initializeContext();
 
     // Creates auction state cells:
     // 0x0 Auction consensus: state of auction, inclusive of the account id.
     // 0x1 Auction escrow: holds the assets.
     const auctionTx0Hash =
-          await openAuction(indexer, scriptMetaTable)
-
-    // const { codehash: noopCodeHash
-    //       , outpoint: noopOutpoint } = scriptMetaTable[AUCTION_NOOP_LOCK_SCRIPT]
+          await auctionRequests.openAuction(indexer, scriptMetaTable)
 
     // Initial auction bid
     const auctionTx1 =
-          await placeBid(indexer, scriptMetaTable, 10, auctionTx0Hash)
+          await auctionRequests.placeBid(indexer, scriptMetaTable, 10, auctionTx0Hash)
 
     // Failed bid
     // NOTE: With rebase script it should pass through.
