@@ -38,7 +38,7 @@ async function main()
 
     // Initial auction bid
     const auctionTx1 =
-          await auctionRequests.placeBid(indexer, scriptMetaTable, 10, auctionTx0Hash)
+          await auctionRequests.placeBid(indexer, scriptMetaTable, 1000, auctionTx0Hash)
 
     // Failed bid
     // NOTE: With rebase script it should pass through.
