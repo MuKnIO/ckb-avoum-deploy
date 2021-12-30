@@ -1,4 +1,5 @@
 const { initializeLumos } = require('./lib/index')
+const { headerLog } = require('./lib/util')
 const auctionRequests = require('./lib/auction/requests')
 const auctionUtils = require('./lib/auction/util')
 
